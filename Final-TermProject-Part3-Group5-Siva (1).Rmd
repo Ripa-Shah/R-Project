@@ -1,0 +1,387 @@
+---
+title: "**Term Project Part III - Police shooting data (v2)**"
+header-includes:
+- \usepackage[default]{sourcesanspro}
+- \usepackage[T1]{fontenc}
+mainfont: SourceSansPro
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=FALSE, message=FALSE, warning=FALSE)
+```
+
+```{r code0}
+# Term Project Part III:
+# Divide policy shooting data into two parts: one part involving only male victims, 
+# and the other part involving only female victims.
+# Mine strong association rules from each of the two parts using 
+# the same attributes as those used in the demo.
+# Compare and contrast the rules (for example, top 5 rules) mined. 
+# Post your code and the comparison.
+
+# Prepare the police shooting data for mining
+rm(list = ls())
+
+library(ggplot2)
+library(dplyr)
+library(gridExtra)
+library(tidyverse)
+library(dplyr)
+library(ggthemes)
+library(scales)
+library(lubridate)
+library (arules) 
+
+
+# Load the data
+shooting_part3 <-read_csv("fatal-police-shootings-data1.csv", 
+                          col_names = TRUE, na="")
+
+typeof(shooting_part3) 
+is.data.frame(shooting_part3)
+is_tibble(shooting_part3)
+as_tibble(shooting_part3)
+str(shooting_part3)
+
+# #examine missing data
+filter(shooting_part3, !complete.cases(shooting_part3))
+
+# Get % of Missing data
+apply(shooting_part3, 2, function(x) percent(mean(is.na(x)),accuracy=1)) %>% 
+  sort(decreasing=TRUE)
+
+# Split date to year & month
+shooting_part3 <- shooting_part3 %>% mutate(
+  year = year(shooting_part3$date),
+  month = month(shooting_part3$date)
+)
+
+#Use ChiMerge for agegroup
+shooting_part3$ageGroupDT <- cut(shooting_part3$age, 
+                                 breaks = c(0, 22.5, 25.5, 43.5, 47.5, 100), 
+                                 labels=c('veryyoung','young', 'grown', 'mature', 'old'))
+# group the arms
+group <- function (string){
+  if(is.na(string)) return ("NA")
+  if(string == "unarmed") return ("Unarmed")
+  else if (string %in% c("undetermined", "unknown")) return ("Undetermined")
+  else if (string == "vehicle") return ("Vehicle")
+  else if (string %in% c("gun", "gun;knife", 
+                         "other;gun",  "replica",
+                         "gun;vehicle", "vehicle;gun"))  return ("Gun")
+  else if (string %in% c("knife", "blunt_object", "blunt_object;blunt_object",
+                         "sharp object", "knife;blunt_object")) 
+    return ("Sharp Object")
+  else return ("Other")
+}
+
+#apply group on each element of a vector
+shooting_part3$armedType <- sapply(shooting_part3$armed_with, group)
+
+# create age category to consolidate different age groups
+shooting_part3 <- shooting_part3 %>%
+  mutate(ageCategory = case_when(between(age, 0, 10) ~ "0 - 10",
+                                 between(age, 11, 20) ~ "11 - 20",
+                                 between(age, 21, 30) ~ "21 - 30",
+                                 between(age, 31, 40) ~ "31 - 40",
+                                 between(age, 41, 50) ~ "41 - 50",
+                                 between(age, 51, 60) ~ "51 - 60",
+                                 between(age, 61, 70) ~ "61 - 70",
+                                 between(age, 71, 80) ~ "71 - 80",
+                                 between(age, 81, 91) ~ "81 - 91"))
+
+# Split the police shooting data in two parts - 
+# one consists of male victims and other for female victims
+shooting_part3_male <- shooting_part3 %>%
+  filter(gender=="male")
+
+typeof(shooting_part3_male) 
+is.data.frame(shooting_part3_male)
+is_tibble(shooting_part3_male)
+as_tibble(shooting_part3_male)
+str(shooting_part3_male)
+
+shooting_part3_female <- shooting_part3 %>%
+  filter(gender=="female")
+
+# shooting3 <- shooting_part3
+# save(shooting3, file="shooting3.RData")
+# 
+# # Load the data
+# load("shooting3.RData")
+# str(shooting3)
+
+shooting3_trans <- as.data.frame(shooting_part3_male)
+shooting3_trans <- as(shooting3_trans, "transactions") 
+
+colnames(shooting_part3_male) 
+# colnames(shooting3_trans) 
+
+#remove id, name, date, manner_of_death, armed, age, city, state, vpRatio, and vpRatioLevel
+#convert all other columns to factors
+shooting3_trans <- shooting_part3_male[, c(-1, -2, -5, -6, -7, -8, -9, -10, -11,  -12, -13, -16, -18, -19)]
+colnames(shooting3_trans)
+
+shooting3_trans <- shooting3_trans %>%
+  mutate_if(is.character,as.factor)
+
+shooting3_trans$year <-as.factor(shooting3_trans$year)
+shooting3_trans$month <-as.factor(shooting3_trans$month)
+# str(shooting3_trans)
+
+#convert to transaction data: all attributes are factor or logical
+shooting3_trans <-as.data.frame(shooting3_trans)
+shooting3_trans <- as(shooting3_trans, "transactions") 
+
+# Get the summary
+summary(shooting3_trans)
+#To see the records, use inspect(): inspect(b[1:9]) show the first 9 transactions. 
+#to see the first 10 transactions:
+inspect(shooting3_trans[1:10])
+#each transaction holds a set of items (e.g., gender=F, race=W). 
+# items of a transaction = cells filled with 1
+
+##########################################################################
+# Part 2: mine and inspect frequent itemsets 
+sets <- apriori(shooting3_trans, parameter = list(support=0.1, target="frequent itemsets"))
+
+#higher support often find closed set directly, try support=0.5, 0.1, 0.001
+#select closed/maximal itemsets from freq. itemset
+closed = sets[is.closed(sets)]
+summary(closed)
+inspect(head(closed, n = 20, by = "support")) #more than half of incidents involves man with gun
+
+max = sets[is.maximal(sets)]
+summary(max)
+inspect(head(max, n = 5, by = "support")) #show the most typical cases
+#plot(as.factor(shooting$year))
+#plot(as.factor(shooting$month))
+
+#or obtain maximal itemsets directly ()  
+maximal_sets <- apriori(shooting3_trans, 
+                        parameter = list(support=0.5, target="maximally frequent itemsets"))
+inspect(maximal_sets)
+
+closed_sets <- apriori(shooting3_trans, 
+                       parameter = list(support=0.5, target="closed frequent itemsets"))
+inspect(closed_sets)
+
+#sort/select freq itemsets
+inspect(head(closed_sets, n = 5, by = "support"))
+sorted_closed <- sort(closed_sets, decreasing = TRUE, by="support")
+inspect(sorted_closed)
+
+#any max itemsets meeting a criterion
+inspect(subset(closed_sets, subset=(items %in% "gender=male"))) #"race=W"? not frequent
+
+
+##########################################################################
+#Part 3: mine rules
+#Apriori only creates rules with one item in the RHS (Consequent). 
+rules <- apriori(shooting3_trans, parameter = list(support=0.5, confidence=0.8, target="rules", minlen=2))
+
+summary(rules)
+inspect(rules)
+
+#Apriori only creates rules with one item in the RHS (Consequent), to show this:
+allrules <- apriori(shooting3_trans, parameter = list(support=0.01, 
+                                                    confidence=0.001, target="rules", minlen=2))
+inspect(head(subset(allrules, subset= (size(rhs)>1), 
+                    by="support"))) #0 rules meet the size criterion
+
+#obtain maximal rules
+rules.max <- subset(rules, subset=is.maximal(rules))
+summary(rules.max)
+inspect(rules.max)
+
+##########################################################################
+
+#Part 4: inspect the rules and be careful with rule interpretation
+#try conf=0.6
+rules <- apriori(shooting3_trans, parameter = list(support=0.2, 
+                                                   confidence=0.8, target="rules", minlen=2))
+
+#add a few more rule evaluation measures: high kulc and low imbalance
+quality(rules) <- cbind(quality(rules),
+                        kulc = interestMeasure(rules, measure = "kulczynski",
+                                               transactions = shooting3_trans),
+                        imbalance = interestMeasure(rules, measure ="imbalance",
+                                                    transactions = shooting3_trans))
+summary(rules)
+
+## calculate all available measures for the first 5 rules and show them as a
+## table with the measures as rows
+t(interestMeasure(head(rules, 5), transactions = shooting3_trans))
+
+sorted_rules <- inspect(head(rules, n=10, decreasing = TRUE, by = "lift"))
+sorted_rules <- inspect(head(rules, n=85, decreasing = TRUE, by = "kulc"))
+
+#sort on multiple measures, additional measures to break ties, show top 6 rules
+inspect(head((sort(rules, decreasing = TRUE, by = c("kulc", "imbalance")))))
+
+#select 10 rules based on rule length and rule content
+inspect(head(subset(rules, subset= (size(lhs)<5 & size(lhs) >1) & 
+                      !(rhs %in% "gender=male")), 10, by="kulc"))
+
+#select rules containing certain items: 
+# Show top 5 rules by confidence with "race=B" on the right side (rhs)
+inspect(head(subset(rules, subset=(rhs %in% "race=B"))))
+
+#race is either B or H:
+inspect(head(subset(rules, subset=(rhs %in% "race=B" | rhs %in% "race=H")), 
+             by = c("kulc", "imbalance")))
+
+#having "race=" on the right side:
+inspect(head(subset(rules, subset=(rhs %pin% "race=")),  by="kulc"))
+
+##having "race=" at all:
+inspect(head(subset(rules, subset=(rhs %pin% "race=" | lhs %pin% "race=")), n=20,  by="kulc"))
+inspect(head(subset(rules, subset=(lhs %in% "race=B" | lhs %in% "race=H")),  by = c("kulc", "imbalance")))
+inspect(head(subset(rules, subset=((lhs %in% "race=B" | lhs %in% "race=H")) & imbalance<=0.5),  by = c("kulc", "imbalance")))
+inspect(head(subset(rules, subset=(imbalance<=0.3))),  by = c("kulc", "imbalance"))
+summary(rules)
+
+
+#Part 5: visualize the rules
+library(arulesViz)
+
+rules <- apriori(shooting3_trans, parameter = list(support=0.05, confidence=0.8, target="rules", minlen=2))
+
+#add a few more rule evaluation measures: high kulc and low imbalance
+quality(rules) <- cbind(quality(rules),
+                        kulc = interestMeasure(rules, measure = "kulczynski",
+                                               transactions = shooting3_trans),
+                        imbalance = interestMeasure(rules, measure ="imbalance",
+                                                    transactions = shooting3_trans))
+# summary(rules)
+rules.race <- subset(rules, subset=((rhs %pin% "race="  | lhs %pin% "race=") & kulc>0.6))
+summary(rules.race)
+
+shooting3 <- shooting_part3
+save(shooting3, file="shooting3.RData")
+
+
+```
+
+\newpage
+
+## Police shooting data (only Males)
+
+```{r code2}
+
+# **Police shooting data (only Males)**
+
+itemFrequencyPlot(shooting3_trans,topN = 20)
+
+g1 <- ggplot(
+  tibble(
+    Support = sort(itemFrequency(shooting3_trans, type = "absolute"), decreasing = TRUE),
+    Item = seq_len(ncol(shooting3_trans))
+  ), aes(x = Item, y = Support)) + geom_line()
+g1
+
+# plot(rules)
+plot(rules, control = list(jitter = 0))
+
+plot(rules, shading = "order")
+# plot(as.factor(shooting_part3_male$year))
+# plot(as.factor(shooting_part3_male$month))
+
+plot(rules, method = "grouped")
+plot(rules, method = "graph")
+
+# plot(rules, engine = "html")
+
+# interactive plot may crash R Studio. Save your project now before run the command below. 
+# plot(rules.race, method="scatterplot", measure=c("imbalance", "support"), shading="kulc", engine="interactive")
+# set.seed(1)
+# association between rules and items (default measure = "support", shading = "lift")
+# measure argument has no effect when method="graph".
+plot(rules.race, method="graph", measure="imbalance", shading="kulc", engine="htmlwidget", max=50)
+
+
+```
+
+\newpage
+
+**Observations: - Mining data for Male & Female Victims** **Association Rules - Compare & Contrast:**
+
+ssociation rules mining is performed with the Apriori algorithm in R.
+Association Rule: Ex. {X → Y} is a representation of finding Y on the basket which has X on it
+Itemset: Ex. {X,Y} is a representation of the list of all items which form the association rule
+• Support: Fraction of transactions containing the itemset
+• Confidence: Probability of occurrence of {Y} given {X} is present
+• Lift: Ratio of confidence to baseline probability of occurrence of {Y}
+As part of the assignment, we have gathered data for female victims & male victims in 
+shooting separately in each data frame.
+We're analyzing the police shooting data history. Based on history, we're creating 5 rules
+for female victims.
+Support: how frequent the item occurs in all transactions
+confidence: Confidence is the likelihood of occurrence of the consequent in the baskets 
+given that the cart already has antecedents.
+Lift is the measure of performance of the model at classifying the cases. The higher the lift, 
+the greater the association
+
+Male Data:
+In the first steps, there are 8291 transactions for the male victims.
+Around 42% males are white and carry gun with them.
+They are not able to flee and their age group type is grown
+In the second step - we are finding frequent itemset. 
+There are total of 8291 transactions of support value 0.05 and absolute support count of 82
+For support =0.2 we have 1658 count and set of 21 rules
+#For third steps, we’re looking for closed set. 
+There are 8291 transactions, around 23% are blacks and their age group is grown 28%
+and 28% carry guns and 24% not able to flee during the incident.
+When sorted on multiple measures we have the following the info
+There are 8291 transactions, around 42% are whites and their age group is grown 28%
+and 62% carry guns and 53% are not able to flee during the incident.
+#For fifth steps, we’re looking for maximum set. 42% male are white.
+and 27% carry guns, and 24% are not able to flee.
+whereas 23% males are blacks, whose location precision is not available and their age 
+group 21% is grown
+
+Female data:
+In the first steps, we’re seeing total 381 transactions for women victims.
+55% women are white. 46% carry guns with them.
+In the second step, we’re finding frequent itemset. We have 381 transactions for female 
+data. For 0.05 
+#support, we’ve 19 count. #Subset size is 6 for that. Absolute minimum support count: 19 
+#For third steps, we’re looking for closed set. 
+#Total shooting victim women are 381. #
+55% women are white and 60% women are not able to flee during the incident. 
+#For fifth steps, we’re looking for maximum set. 51% women are white whose location 
+precision is not #available.
+T
+
+
+**Team members contribution:**
+
+Sivarajan Jaganathan (Male data)
+• Final-TermProject-Part3-Group5-MaleData-Siva.pdf
+• Final-TermProject-Part3-Group5-Siva.Rmd
+
+Ripa Shah(Female data) 
+• Final Project 4 -Ripa Shah.Rmd - Ripa 
+• Final Project 4 – FemaleData- Ripa Shah.pdf
+
+\newpage
+
+# Code Used To Make These Plots
+
+Below are the code chunks used to make these plots.
+
+```{r code0, eval=FALSE, echo=TRUE}
+```
+
+```{r code1, eval=FALSE, echo=TRUE}
+```
+
+```{r code2, eval=FALSE, echo=TRUE}
+```
